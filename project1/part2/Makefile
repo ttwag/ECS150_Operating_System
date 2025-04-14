@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror
+CFLAGS = -Wall -Wextra  -I./include #-Werror
 SRC_DIR = ./src
 BUILD_DIR = ./build
 SRCS = $(wildcard $(SRC_DIR)/*.c)
