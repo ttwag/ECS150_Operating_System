@@ -17,51 +17,6 @@ void display_prompt(void) {
     printf("ttwagShell@ucd$ ");
     fflush(stdout);
 }
-/*
-int read_command(char *cmdArry[MAX_CL_CHAR + 1]) {
-    // Remove the trailing New Line character from cmdLine
-    size_t strLen = strlen(cmdLine);
-    if (strLen > 0 && cmdLine[strLen - 1] == '\n') {
-        cmdLine[strLen - 1] = '\0';
-    }
-    
-    // Parse the command line
-    // Buffer will be deallocated from heap after the child process exits
-    char tokenBuffer[MAX_CL_CHAR + 1] = {};
-    int arryInd = 0;
-    int cmdInd = 0;
-    int buffInd = 0;
-    while (cmdLine[cmdInd] != '\0') {
-        if (cmdLine[cmdInd] != ' ') {
-            tokenBuffer[buffInd] = cmdLine[cmdInd];
-            buffInd++;
-        }
-        else {
-            // End of a string
-            if (buffInd > 0) {
-                tokenBuffer[buffInd] = '\0';
-                cmdArry[arryInd] = strdup(tokenBuffer);
-                arryInd++;
-                buffInd = 0;
-            }
-        }
-        cmdInd++;
-    }
-    if (buffInd > 0) {
-        tokenBuffer[buffInd] = '\0';
-        cmdArry[arryInd] = strdup(tokenBuffer);
-        arryInd++;
-    }
-
-
-    // Print command line if stdin is not provided by terminal
-    // if (!isatty(STDIN_FILENO)) {
-    //     printf("%s", cmd);
-    //     fflush(stdout);
-    // }
-    return 0;
-}
-*/
 
 /*
 Input: an empty string
@@ -99,11 +54,6 @@ void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 
         for (int i = 0; i < MAX_CMD + 1; i++) {
             // if a Command exist
             if (parsedCmdLine->commands[i] != NULL) {
-                // free the cmd_ptr
-                if (parsedCmdLine->commands[i]->cmd != NULL) {
-                    free(parsedCmdLine->commands[i]->cmd);
-                    parsedCmdLine->commands[i]->cmd = NULL;
-                }
                 // free the arg array
                 for (int j = 0; j < MAX_ARG + 1; j++) {
                     if (parsedCmdLine->commands[i]->arg[j] != NULL) {
@@ -199,12 +149,12 @@ int parseCmdLine(char *lexedCmdLine[MAX_TOKEN + 1], CommandLine *parsedCmdLine) 
         }
         parsedCmdLine->commands[0] = commandBlk;
         
-        commandBlk->cmd = strdup(lexedCmdLine[0]);
+        commandBlk->arg[0] = strdup(lexedCmdLine[0]);
         int argInd = 0;
         for (int i = 0; i < MAX_TOKEN + 1; i++) {
             // Check number of argument
             if (argInd >= MAX_ARG) {
-                fprintf(stderr, "ERROR: Too Many Argument to Command %s\n", commandBlk->cmd);
+                fprintf(stderr, "ERROR: Too Many Argument to Command %s\n", commandBlk->arg[0]);
                 fprintf(stderr, "Max Number of Argument: %d\n", MAX_ARG);
                 return 1;
             }
@@ -226,58 +176,50 @@ int parseCmdLine(char *lexedCmdLine[MAX_TOKEN + 1], CommandLine *parsedCmdLine) 
 /*
 Input: CommandLine Object
 Output: Executes the command line
+exit command will return a status code 2
 */
 int executeCmdLine(CommandLine *parsedCmdLine) {
     pid_t pid = 0;
-    if (parsedCmdLine == NULL) {
-        return 1;
-    }
     printf("Output:\n");
     CommandBlock *commandBlk = parsedCmdLine->commands[0];
-    if (commandBlk != NULL) {
-        if (parsedCmdLine->commands[0]->isBuiltIn == 1) {
-            // Built in commands
+    if (commandBlk == NULL) return 0;
+
+    // Handle built-in commands
+    if (commandBlk->isBuiltIn) {
+        if (strcmp(commandBlk->arg[0], "cd") == 0){
+            if (chdir(commandBlk->arg[1]) == -1) {
+                fprintf(stderr, "Error: cannot cd into directory\n");
+                commandBlk->status = 1;
+            }
         }
-        else { // spawn children to complete commands
-            pid = fork();
-            // parent process
-            if (pid > 0) {
-                int status;
-                waitpid(-1, &status, 0);
-                // if (WEXITSTATUS(status)) printf("Exited with Status:%d\n", WEXITSTATUS(status));
-            }
-            // child process
-            else if (pid == 0) {
-                if (execvp(commandBlk->cmd, commandBlk->arg) == -1) {
-                    perror("execvp");
-                    commandBlk->status = 1;
-                }
-                exit(0);
-            }
-            else {
-                perror("fork");
-                exit(1);
-            }
+        else if (strcmp(commandBlk->arg[0], "exit") == 0) {
+            printf("Bye...\n");
+            commandBlk->status = 0;
+            return 2;
         }
     }
-     // Start again if read failed
-        // if (read_command(cmd)) {
-        //     continue;
-        // }
-        // // Special case for cd - parent executes the command
-        // if (cmd[0] != NULL && strcmp(cmd[0], "cd") == 0) {
-        //     int chdir_status = 0;
-        //     if (cmd[1] == NULL) {
-        //         chdir_status = chdir(getenv("HOME"));
-        //     }
-        //     else {
-        //         chdir_status = chdir(cmd[1]);
-        //     }
-        //     if (chdir_status) {
-        //         perror("chdir");
-        //     }
-        //     continue;
-        // }
+    else { // spawn children to complete commands
+        pid = fork();
+        // parent process
+        if (pid > 0) {
+            int status;
+            waitpid(-1, &status, 0);
+            // if (WEXITSTATUS(status)) printf("Exited with Status:%d\n", WEXITSTATUS(status));
+        }
+        // child process
+        else if (pid == 0) {
+            if (execvp(commandBlk->arg[0], commandBlk->arg) == -1) {
+                perror("execvp");
+                commandBlk->status = 1;
+                exit(1);
+            }
+            exit(0);
+        }
+        else {
+            perror("fork");
+            exit(1);
+        }
+    }
     return 0;
 }
 
@@ -301,7 +243,7 @@ void printParsedCmdLine(CommandLine *parsedCmdLine) {
             commandBlk = parsedCmdLine->commands[i];
             if (commandBlk != NULL) {
                 printf("Command Block %d\n", cmdCount);
-                printf("command: %s\n", commandBlk->cmd); // check NULL?
+                printf("command: %s\n", commandBlk->arg[0]);
                 printf("arg:");
                 for (int j = 0; j < MAX_ARG + 1; j++) {
                     if (commandBlk->arg[j] != NULL) {
@@ -321,16 +263,14 @@ void printParsedCmdLine(CommandLine *parsedCmdLine) {
 
 void printExitStatus(char cmdLine[MAX_CL_CHAR + 1], CommandLine *parsedCmdLine) {
     printf("+ completed '%s' ", cmdLine);
-    if (parsedCmdLine != NULL) {
-        CommandBlock *commandBlk = NULL;
-        for (int i = 0; i < MAX_CMD + 1; i++) {
-            commandBlk = parsedCmdLine->commands[i];
-            if (commandBlk != NULL) {
-                printf("[%d]", commandBlk->status);
-            }
+    CommandBlock *commandBlk = NULL;
+    for (int i = 0; i < MAX_CMD + 1; i++) {
+        commandBlk = parsedCmdLine->commands[i];
+        if (commandBlk != NULL) {
+            printf("[%d]", commandBlk->status);
         }
-        printf("\n");
     }
+    printf("\n");
 }
 
 int main(void) {
@@ -352,11 +292,9 @@ int main(void) {
         printParsedCmdLine(&parsedCmdLine);
 
         // Execute
-        if (executeCmdLine(&parsedCmdLine)) continue;
-
+        int status = executeCmdLine(&parsedCmdLine);
         printExitStatus(cmdLine, &parsedCmdLine);
+        if (status == 2) exit(0);
     }
-
-
     return 0;
 }

@@ -10,7 +10,6 @@ typedef struct CommandLine CommandLine;
 // built in command won't be mixed with pipes
 
 struct CommandBlock {
-    char *cmd;
     char *arg[MAX_ARG + 1];
     int status;
     int isBuiltIn;
