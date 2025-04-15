@@ -41,6 +41,8 @@ The ttwagShell deals with three types of errors:
     | :-| :-|
     | Input exceeds the maximum length (512) | 1 |
     | Token exceeds the maximum length (32) | 1 |
+    | Missing a command | 1 |
+    | No output file | 1 |
     | Incorrect token | 1 |
     | Failure of the library function | 2 |
 
@@ -63,9 +65,8 @@ ID : ([a-zA-Z] | [0-9] | '_' | '.' | '/' | '~')+;
     | Error | Error Type |
     | :- | :- |
     | Program argument exceeds the maximum number (16) | 1 |
-    | Missing a command | 1 |
-    | No output file | 1 |
     | Mislocated redirection | 1 |
+    | At Most One Redirection | 1 |
 
 * Objective: 
     * Parses the lexed tokens into an commandLine object
