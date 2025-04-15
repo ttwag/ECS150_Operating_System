@@ -242,9 +242,10 @@ int executeCmdLine(CommandLine *parsedCmdLine) {
         pid = fork();
         // parent process
         if (pid > 0) {
-            int status;
-            waitpid(-1, &status, 0);
-            // if (WEXITSTATUS(status)) printf("Exited with Status:%d\n", WEXITSTATUS(status));
+            // wait for all children to finish
+            int childStatus = 0;
+            waitpid(-1, &childStatus, 0);
+            commandBlk->status = WEXITSTATUS(childStatus);
         }
         // child process
         else if (pid == 0) {
@@ -253,8 +254,7 @@ int executeCmdLine(CommandLine *parsedCmdLine) {
                 int fd = open(commandBlk->filePath, O_RDONLY);
                 if (fd == -1) {
                     perror("open");
-                    commandBlk->status = 1;
-                    return 1;
+                    exit(1);
                 }
                 dup2(fd, STDIN_FILENO);
                 close(fd);
@@ -263,8 +263,7 @@ int executeCmdLine(CommandLine *parsedCmdLine) {
                 int fd = open(commandBlk->filePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
                 if (fd == -1) {
                     perror("open");
-                    commandBlk->status = 1;
-                    return 1;
+                    exit(1);
                 }
                 dup2(fd, STDOUT_FILENO);
                 close(fd);
@@ -272,8 +271,6 @@ int executeCmdLine(CommandLine *parsedCmdLine) {
             // execute command
             if (execvp(commandBlk->arg[0], commandBlk->arg) == -1) {
                 perror("execvp");
-                commandBlk->status = 1;
-                // printf("Pointer: %p\n", commandBlk);
                 exit(1);
             }
             exit(0);
@@ -332,8 +329,7 @@ void printExitStatus(char cmdLine[MAX_CL_CHAR + 1], CommandLine *parsedCmdLine) 
     for (int i = 0; i < MAX_CMD + 1; i++) {
         commandBlk = parsedCmdLine->commands[i];
         if (commandBlk != NULL) {
-            printf("[%d]", commandBlk->status);
-            // printf("Pointer: %p", commandBlk);
+            printf("[%d]\n", commandBlk->status);
         }
     }
     printf("\n");
@@ -346,14 +342,16 @@ int main(void) {
     
     while (1) {
         display_prompt();
-        // Reset cmdLine input
         resetCmdLine(cmdLine, lexedCmdLine, &parsedCmdLine);
+        
         // Get cmdLine input
         if (getCmdLine(cmdLine)) continue;
+
         // Lex
         if (lexCmdLine(cmdLine, lexedCmdLine)) continue;
         printLexedCmdLine(lexedCmdLine);
         printf("\n\n");
+
         // Parse
         if (parseCmdLine(lexedCmdLine, &parsedCmdLine)) continue;
         printParsedCmdLine(&parsedCmdLine);
