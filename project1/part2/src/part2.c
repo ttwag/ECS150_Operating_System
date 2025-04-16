@@ -76,11 +76,12 @@ void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 
 
 /*
 Input: Command line user input (EX: ... \n \0)
-Output: An array of tokens without the WHITESPACE
+Output: An array of tokens without the WHITESPACE;
+        lineLen - the size of the array of tokens;
 
 Note: Need to error handle strdup
 */
-int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1]) {
+int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen) {
     size_t strLen = strlen(cmdLine);
     // If input is within limit, the last char should be a newline
     // Remove the trailing newline char from cmdLine
@@ -90,13 +91,13 @@ int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1])
             cmdLine[strLen - 1] = '\0';
         }
         else {
-            fprintf(stderr, "ERROR: Command Line Input is Too Long\n");
-            fprintf(stderr, "ERROR: Maximum Command Line Input Length (Include \\n): %d\n", MAX_CL_CHAR);
+            fprintf(stderr, "LEX ERROR: Command Line Input is Too Long\n");
+            fprintf(stderr, "Maximum Command Line Input Length (Include \\n): %d\n", MAX_CL_CHAR);
             return 1;
         }
     }
     else {
-        fprintf(stderr, "ERROR: Command is Too Short\n");
+        fprintf(stderr, "LEX ERROR: Command is Too Short\n");
         return 1;
     }
     
@@ -105,56 +106,60 @@ int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1])
     int lexInd = 0;
     int cmdInd = 0;
     int buffInd = 0;
-    int redirectionNum = 0;
-    char op[2] = {};
+    int redirNum = 0;
+    char redirOp[2] = {};
+    char token = cmdLine[cmdInd];
 
-    while (cmdLine[cmdInd] != '\0') {
-        // check token length
-        if (buffInd >= MAX_TOKEN_LEN) {
-            fprintf(stderr, "ERROR: A Command, Argument, Path, or File Name Is Too Long\n");
-            fprintf(stderr, "Maximum Word Length: %d\n", MAX_TOKEN_LEN);
-            return 1;
-        }
+    while (token != '\0') {
         // lexing
-        if (cmdLine[cmdInd] != ' ' && cmdLine[cmdInd] != '<' && cmdLine[cmdInd] != '>') {
-            tokenBuffer[buffInd] = cmdLine[cmdInd];
+        if (token != ' ' && token != '<' && token != '>' && token != '|') {
+            // check token length
+            if (buffInd >= MAX_TOKEN_LEN) { 
+                fprintf(stderr, "LEX ERROR: A Command, Argument, Path, or File Name Is Too Long\n");
+                fprintf(stderr, "Maximum Word Length: %d\n", MAX_TOKEN_LEN);
+                return 1;
+            }
+            tokenBuffer[buffInd] = token;
             buffInd++;
         }
         else {
-            // end of a string
+            // end the current string buffer because [' ' | '<' | '>' | '|']
             if (buffInd > 0) {
                 tokenBuffer[buffInd] = '\0';
                 lexedCmdLine[lexInd] = strdup(tokenBuffer);
                 lexInd++;
                 buffInd = 0;
             }
-            if (cmdLine[cmdInd] == '<' || cmdLine[cmdInd] == '>') {
-                if (redirectionNum == 0 && lexInd > 0) {
-                    op[0] = cmdLine[cmdInd];
-                    lexedCmdLine[lexInd] = strdup(op);
-                    lexInd++, redirectionNum++;
-                }
-                else if (redirectionNum == 0 && lexInd == 0) {
-                    fprintf(stderr, "ERROR: Missing A Command\n");
-                    return 1;
-                }
-                else {
-                    fprintf(stderr, "ERROR: At Most One Redirection\n");
-                    return 1;
-                }
+            // for non white space delimiter
+            // if (token == '|') {
+
+            // }
+            if (token == '<' || token == '>') {
+                redirOp[0] = token;
+                lexedCmdLine[lexInd] = strdup(redirOp);
+                lexInd++; redirNum++;
             }
         }
         cmdInd++;
+        token = cmdLine[cmdInd];
     }
     if (buffInd > 0) {
         tokenBuffer[buffInd] = '\0';
         lexedCmdLine[lexInd] = strdup(tokenBuffer);
         lexInd++;
     }
-    if (strcmp(lexedCmdLine[lexInd - 1], "<") == 0 || strcmp(lexedCmdLine[lexInd - 1], ">") == 0) {
-        fprintf(stderr, "ERROR: Missing A File\n");
+    *lineLen = lexInd;
+    
+    if (redirNum > 1) {
+        fprintf(stderr, "LEX ERROR: At Most One Redirection\n");
         return 1;
     }
+    return 0;
+}
+
+int isRedirect(char *str) {
+    if (str == NULL) return 0;
+    else if (strcmp(str, "<") == 0 || strcmp(str, ">") == 0) return 1;
     return 0;
 }
 
@@ -166,49 +171,56 @@ Note:
 - Currently only works with no piping
 - Need to expand ~
 */
-int parseCmdLine(char *lexedCmdLine[MAX_TOKEN + 1], CommandLine *parsedCmdLine) {
-    if (lexedCmdLine[0] != NULL) {
-        // create a new object
-        CommandBlock *commandBlk = (CommandBlock *)calloc(1, sizeof(CommandBlock));
-        if (!commandBlk) {
-            perror("calloc");
+int parseCmdLine(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *parsedCmdLine) {
+    if (*lineLen <= 0) return 1;
+    // create a new CommandBlock object
+    if (isRedirect(lexedCmdLine[(*lineLen) - 1])) {
+        fprintf(stderr, "PARSE ERROR: Missing File\n");
+        return 1;
+    }
+    
+    CommandBlock *commandBlk = (CommandBlock *)calloc(1, sizeof(CommandBlock));
+    if (!commandBlk) {
+        perror("calloc");
+        exit(1);
+    }
+    int size = *lineLen;
+    int argInd = 0;
+    parsedCmdLine->commands[0] = commandBlk;
+    commandBlk->arg[0] = strdup(lexedCmdLine[0]);
+    for (int i = 0; i < size; i++) {
+        // error handling
+        if (i == 0 && isRedirect(lexedCmdLine[i])) {
+            fprintf(stderr, "PARSE ERROR: Missing A Command for Redirection\n");
             return 1;
         }
-        parsedCmdLine->commands[0] = commandBlk;
-        
-        commandBlk->arg[0] = strdup(lexedCmdLine[0]);
-        int argInd = 0;
-        for (int i = 0; i < MAX_TOKEN + 1; i++) {
-            // Check number of argument
-            if (argInd >= MAX_ARG) {
-                fprintf(stderr, "ERROR: Too Many Argument to Command %s\n", commandBlk->arg[0]);
-                fprintf(stderr, "Max Number of Argument: %d\n", MAX_ARG);
-                return 1;
-            }
-            if (lexedCmdLine[i] != NULL) {
-                if (strcmp(lexedCmdLine[i], "<") == 0) {
-                    commandBlk->redirection = -1;
-                    commandBlk->filePath = strdup(lexedCmdLine[i + 1]);
-                    break;
-                }
-                else if (strcmp(lexedCmdLine[i], ">") == 0) {
-                    commandBlk->redirection = 1;
-                    commandBlk->filePath = strdup(lexedCmdLine[i + 1]);
-                    break;
-                }
-                else {
-                    commandBlk->arg[argInd] = strdup(lexedCmdLine[i]);
-                    argInd++;
-                }
-            }
+
+        // parse tokens into some CommandBlocks
+        if (strcmp(lexedCmdLine[i], "<") == 0) {
+            commandBlk->redirection = -1;
+            commandBlk->filePath = strdup(lexedCmdLine[i + 1]);
+            break;
         }
-        commandBlk->status = 0;
-        // if built in command
-        if (strcmp(lexedCmdLine[0], "cd") == 0 || strcmp(lexedCmdLine[0], "exit") == 0) {
-            commandBlk->isBuiltIn = 1;
+        else if (strcmp(lexedCmdLine[i], ">") == 0) {
+            commandBlk->redirection = 1;
+            commandBlk->filePath = strdup(lexedCmdLine[i + 1]);
+            break;
         }
-        else commandBlk->isBuiltIn = 0;
+        else {
+            commandBlk->arg[argInd] = strdup(lexedCmdLine[i]);
+            argInd++;
+        }
     }
+    if (argInd - 2 >= MAX_ARG) {
+        fprintf(stderr, "PARSE ERROR: Too Many Argument to Command %s\n", commandBlk->arg[0]);
+        fprintf(stderr, "Max Number of Argument: %d\n", MAX_ARG);
+        return 1;
+    }
+    // if built in command
+    if (strcmp(lexedCmdLine[0], "cd") == 0 || strcmp(lexedCmdLine[0], "exit") == 0) {
+        commandBlk->isBuiltIn = 1;
+    }
+    else commandBlk->isBuiltIn = 0;
     return 0;
 }
 
@@ -338,6 +350,7 @@ void printExitStatus(char cmdLine[MAX_CL_CHAR + 1], CommandLine *parsedCmdLine) 
 int main(void) {
     char cmdLine[MAX_CL_CHAR + 1] = {};
     char *lexedCmdLine[MAX_TOKEN + 1] = {};
+    int lineLen = 0;
     CommandLine parsedCmdLine = {};
     
     while (1) {
@@ -348,18 +361,18 @@ int main(void) {
         if (getCmdLine(cmdLine)) continue;
 
         // Lex
-        if (lexCmdLine(cmdLine, lexedCmdLine)) continue;
+        if (lexCmdLine(cmdLine, lexedCmdLine, &lineLen)) continue;
         printLexedCmdLine(lexedCmdLine);
         printf("\n\n");
 
         // Parse
-        if (parseCmdLine(lexedCmdLine, &parsedCmdLine)) continue;
+        if (parseCmdLine(lexedCmdLine, &lineLen, &parsedCmdLine)) continue;
         printParsedCmdLine(&parsedCmdLine);
 
         // Execute
-        int status = executeCmdLine(&parsedCmdLine);
-        printExitStatus(cmdLine, &parsedCmdLine);
-        if (status == 2) exit(0);
+        // int status = executeCmdLine(&parsedCmdLine);
+        // printExitStatus(cmdLine, &parsedCmdLine);
+        // if (status == 2) exit(0);
     }
     return 0;
 }

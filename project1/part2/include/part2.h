@@ -9,14 +9,12 @@ typedef struct CommandLine CommandLine;
 
 // built in command won't be mixed with pipes
 // redirection
-// -1: read from file
-// 0: no redirection
-// 1: write to file
+
 struct CommandBlock {
     char *arg[MAX_ARG + 1];
     int status;
     int isBuiltIn;
-    int redirection;
+    int redirection; // -1: read from file, 0: no redirection, 1: write to file
     char *filePath;
 };
 struct CommandLine {
