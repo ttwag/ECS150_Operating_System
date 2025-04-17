@@ -50,12 +50,12 @@ The ttwagShell deals with three types of errors:
 
 ```antlr
 WHITESPACE : (' ')+ -> skip;
-END : '\n';
+END : '\n'; -> skip;
 PIPE : '|';
 AMPERSAND : '&';
-OUTPUT_REDIRECT : '>'; // At most one < or >
-INPUT_REDIRECT : '<';
-ID : ([a-zA-Z] | [0-9] | '_' | '.' | '/' | '~')+;
+REDIR_OUT : '>'; // At most one < or >
+REDIR_IN : '<';
+ID : (~([a-zA-Z] | [0-9] | '_' | '.' | '/' | '~'))+;
 ```
 
 ## Parser
@@ -79,11 +79,8 @@ commandLine
     : END
     | command AMPERSAND? END
     | redirect AMPERSAND? END
-    | redirectCommand AMPERSAND? END
     ;
-emptyCommand : END;
 command : args ((PIPE args)+)? (PIPE redirect)?;
-redirectCommand : args (OUTPUT_REDIRECT | INPUT_REDIRECT) ID;
 redirect : args (OUTPUT_REDIRECT | INPUT_REDIRECT) ID;
 args : ID ID*;
 ```

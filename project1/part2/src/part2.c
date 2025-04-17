@@ -36,15 +36,22 @@ int getCmdLine(char cmdLine[MAX_CL_CHAR + 1]) {
 - resets lexedCmdLine to an array of NULL
 - resets all of parsedCmdLine->commands[i] to NULL
 */
-void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1], CommandLine *parsedCmdLine) {
+void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
     // reset the command line input buffer
     memset(cmdLine, 0, MAX_CL_CHAR + 1);
 
     // reset the input buffer to store lexed tokens
-    for (int i = 0; i < MAX_TOKEN + 1; i++) {
-        if (lexedCmdLine[i] != NULL) {
-            free(lexedCmdLine[i]);
-            lexedCmdLine[i] = NULL;
+    if (lexedCmdLine != NULL) {
+        for (int i = 0; i < MAX_TOKEN + 1; i++) {
+            if (lexedCmdLine->tokens[i] != NULL) {
+                // free each Token
+                if (lexedCmdLine->tokens[i]->value != NULL) {
+                    free(lexedCmdLine->tokens[i]->value);
+                    lexedCmdLine->tokens[i]->value = NULL;
+                }
+                free(lexedCmdLine->tokens[i]);
+                lexedCmdLine->tokens[i] = NULL;
+            }
         }
     }
 
@@ -75,13 +82,25 @@ void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 
 }
 
 /*
+Input: A Token's value, type, and location
+Output: Returns a newly allocated Token with the provided inputs
+*/
+Token *createToken(char *value, TokenType type, int loc) {
+    Token *currToken = (Token *)calloc(1, sizeof(Token));
+    currToken->value = strdup(value);
+    currToken->type = type;
+    currToken->loc = loc;
+    return currToken;
+}
+
+/*
 Input: Command line user input (EX: ... \n \0)
 Output: An array of tokens without the WHITESPACE;
         lineLen - the size of the array of tokens;
 
 Note: Need to error handle strdup
 */
-int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen) {
+int lexer(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine) {
     size_t strLen = strlen(cmdLine);
     // If input is within limit, the last char should be a newline
     // Remove the trailing newline char from cmdLine
@@ -106,13 +125,12 @@ int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1],
     int lexInd = 0;
     int cmdInd = 0;
     int buffInd = 0;
-    int redirNum = 0;
-    char redirOp[2] = {};
+
     char token = cmdLine[cmdInd];
 
     while (token != '\0') {
         // lexing
-        if (token != ' ' && token != '<' && token != '>' && token != '|') {
+        if (token != ' ' && token != '<' && token != '>' && token != '|' && token != '&') {
             // check token length
             if (buffInd >= MAX_TOKEN_LEN) { 
                 fprintf(stderr, "LEX ERROR: A Command, Argument, Path, or File Name Is Too Long\n");
@@ -126,18 +144,25 @@ int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1],
             // end the current string buffer because [' ' | '<' | '>' | '|']
             if (buffInd > 0) {
                 tokenBuffer[buffInd] = '\0';
-                lexedCmdLine[lexInd] = strdup(tokenBuffer);
+                lexedCmdLine->tokens[lexInd] = createToken(tokenBuffer, ID , cmdInd - buffInd + 1);
                 lexInd++;
                 buffInd = 0;
             }
-            // for non white space delimiter
-            // if (token == '|') {
-
-            // }
-            if (token == '<' || token == '>') {
-                redirOp[0] = token;
-                lexedCmdLine[lexInd] = strdup(redirOp);
-                lexInd++; redirNum++;
+            // delimiters
+            if (token != ' ') {
+                if (token == '|') {
+                    lexedCmdLine->tokens[lexInd] = createToken("|\0", PIPE, cmdInd + 1);
+                }
+                else if (token == '<') {
+                    lexedCmdLine->tokens[lexInd] = createToken("<\0", REDIR_IN, cmdInd + 1);
+                }
+                else if (token == '>') {
+                    lexedCmdLine->tokens[lexInd] = createToken(">\0", REDIR_OUT, cmdInd + 1);
+                }
+                else if (token == '&'){
+                    lexedCmdLine->tokens[lexInd] = createToken("&\0", AMPERSAND, cmdInd + 1);
+                }
+                lexInd++;
             }
         }
         cmdInd++;
@@ -145,22 +170,17 @@ int lexCmdLine(char cmdLine[MAX_CL_CHAR + 1], char *lexedCmdLine[MAX_TOKEN + 1],
     }
     if (buffInd > 0) {
         tokenBuffer[buffInd] = '\0';
-        lexedCmdLine[lexInd] = strdup(tokenBuffer);
+        lexedCmdLine->tokens[lexInd] = createToken(tokenBuffer, ID, cmdInd - buffInd + 1);
         lexInd++;
     }
-    *lineLen = lexInd;
-    
-    if (redirNum > 1) {
-        fprintf(stderr, "LEX ERROR: At Most One Redirection\n");
-        return 1;
-    }
+    lexedCmdLine->length = lexInd;
     return 0;
 }
 
-int isRedirect(char *str) {
-    if (str == NULL) return 0;
-    else if (strcmp(str, "<") == 0 || strcmp(str, ">") == 0) return 1;
-    return 0;
+Bool isRedirect(char *str) {
+    if (str == NULL) return False;
+    else if (strcmp(str, "<") == 0 || strcmp(str, ">") == 0) return True;
+    return False;
 }
 
 /*
@@ -171,7 +191,7 @@ Note:
 - Currently only works with no piping
 - Need to expand ~
 */
-int parseCmdLine(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *parsedCmdLine) {
+int parseCmdLine1(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *parsedCmdLine) {
     if (*lineLen <= 0) return 1;
     // create a new CommandBlock object
     if (isRedirect(lexedCmdLine[(*lineLen) - 1])) {
@@ -223,6 +243,79 @@ int parseCmdLine(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *p
     else commandBlk->isBuiltIn = 0;
     return 0;
 }
+
+/*
+Input: Check if input is a built in command
+Output: return Yes -> 1, No -> 0
+*/
+Bool cmdIsBuiltIn(char *cmd) {
+    if (cmd == NULL) return False;
+    else if (strcmp(cmd, "cd\0") == 0 || strcmp(cmd, "exit\0") == 0) return True;
+    else return False;
+}
+
+Bool isDelimiter(TokenType token) {
+    if (token == PIPE || token == REDIR_IN || token == REDIR_IN || token == REDIR_OUT || token == AMPERSAND) {
+        return True;
+    }
+    else return False;
+}
+
+/*
+*/
+int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
+    if (lexedCmdLine == NULL || parsedCmdLine == NULL) return 1;
+    if (lexedCmdLine->length <= 0) return 1;
+    
+    // Parser FSM
+    ParserState state = STATE_START;
+    CommandBlock *commandBlk = NULL;
+    int cmdBlkInd = 0;
+    int argInd = 0;
+    char *value = NULL;
+    TokenType token = NO_TYPE;
+    int loc = 0;
+
+    for (int i = 0; i < lexedCmdLine->length; i++) {
+        value = lexedCmdLine->tokens[i]->value;
+        token = lexedCmdLine->tokens[i]->type;
+        loc = lexedCmdLine->tokens[i]->loc;
+
+        switch(state) {
+            case STATE_START : {
+                if (isDelimiter(token)) {
+                    fprintf(stderr, "PARSE ERROR: Missing A Command at Location: %d\n", loc);
+                    return 1;
+                }
+                else if (token == ID) {
+                    commandBlk = (CommandBlock *)calloc(1, sizeof(CommandBlock));
+                    parsedCmdLine->commands[cmdBlkInd] = commandBlk;
+                    commandBlk->arg[argInd] = strdup(value);
+                    commandBlk->isBuiltIn = cmdIsBuiltIn(value);
+                    cmdBlkInd++, argInd++;
+                }
+                else return 1;
+            }
+            case STATE_CMDBLK : {
+                if (argInd == 0 && isDelimiter(token)) {
+                    fprintf(stderr, "PARSE ERROR: Missing A Command at Location: %d\n", loc);
+                    return 1;
+                }
+            }
+            case STATE_AMP_END : {
+                
+            }
+            case STATE_REDIR_END : {
+
+            }
+            case STATE_REDIR_FILE : {
+
+            }
+        }
+    }    
+    return 0;
+}
+
 
 /*
 Input: CommandLine Object
@@ -295,13 +388,30 @@ int executeCmdLine(CommandLine *parsedCmdLine) {
     return 0;
 }
 
-void printLexedCmdLine(char *lexedCmdLine[MAX_TOKEN + 1]) {
+const char *getTokenType(TokenType type) {
+    switch(type) {
+        case NO_TYPE: return "NO_TYPE";
+        case ID: return "ID";
+        case PIPE: return "PIPE";
+        case AMPERSAND: return "AMPERSAND";
+        case REDIR_OUT: return "REDIR_OUT";
+        case REDIR_IN: return "REDIR_IN";
+        default: return "ERROR";
+    }
+}
+
+void printLexedCmdLine(TokenList *lexedCmdLine) {
     printf("\nLexed Command Line:\n");
-    for (int i = 0; i < MAX_TOKEN + 1; i++) {
-        if (lexedCmdLine[i] != NULL) {
-            printf("%s ", lexedCmdLine[i]);
+
+    if (lexedCmdLine != NULL) {
+        Token *token = NULL;
+        for (int i = 0; i < lexedCmdLine->length; i++) {
+            token = lexedCmdLine->tokens[i];
+            if (token != NULL) {
+                printf("(%s, %s, %d)\n", token->value, getTokenType(token->type), token->loc);
+                
+            }
         }
-        else return;
     }
     return;
 }
@@ -349,24 +459,23 @@ void printExitStatus(char cmdLine[MAX_CL_CHAR + 1], CommandLine *parsedCmdLine) 
 
 int main(void) {
     char cmdLine[MAX_CL_CHAR + 1] = {};
-    char *lexedCmdLine[MAX_TOKEN + 1] = {};
-    int lineLen = 0;
+    TokenList lexedCmdLine = {};
     CommandLine parsedCmdLine = {};
     
     while (1) {
         display_prompt();
-        resetCmdLine(cmdLine, lexedCmdLine, &parsedCmdLine);
+        resetCmdLine(cmdLine, &lexedCmdLine, &parsedCmdLine);
         
         // Get cmdLine input
         if (getCmdLine(cmdLine)) continue;
 
         // Lex
-        if (lexCmdLine(cmdLine, lexedCmdLine, &lineLen)) continue;
-        printLexedCmdLine(lexedCmdLine);
+        if (lexer(cmdLine, &lexedCmdLine)) continue;
+        printLexedCmdLine(&lexedCmdLine);
         printf("\n\n");
 
         // Parse
-        if (parseCmdLine(lexedCmdLine, &lineLen, &parsedCmdLine)) continue;
+        if (parseCmdLine(&lexedCmdLine, &parsedCmdLine)) continue;
         printParsedCmdLine(&parsedCmdLine);
 
         // Execute

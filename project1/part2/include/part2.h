@@ -1,22 +1,60 @@
+#ifndef PART2_H
+#define PART2_H
+
 #define MAX_CL_CHAR 512
 #define MAX_CMD 4
 #define MAX_ARG 16
 #define MAX_TOKEN MAX_CL_CHAR
 #define MAX_TOKEN_LEN 32
 
-typedef struct CommandBlock CommandBlock;
-typedef struct CommandLine CommandLine;
+typedef enum {
+    False,
+    True
+} Bool;
+
+/*        Lexer        */
+typedef enum {
+    NO_TYPE,
+    ID,
+    PIPE,
+    AMPERSAND,
+    REDIR_OUT,
+    REDIR_IN
+} TokenType;
+
+typedef struct {
+    char *value;
+    TokenType type;
+    int loc;  //location
+} Token;
+
+typedef struct {
+    Token *tokens[MAX_TOKEN + 1];
+    int length;
+} TokenList;
+
+/*        Parser        */
+typedef enum {
+    STATE_START,
+    STATE_CMDBLK,
+    STATE_AMP_END,
+    STATE_REDIR_FILE,
+    STATE_REDIR_END
+} ParserState;
 
 // built in command won't be mixed with pipes
 // redirection
 
-struct CommandBlock {
+typedef struct {
     char *arg[MAX_ARG + 1];
     int status;
     int isBuiltIn;
     int redirection; // -1: read from file, 0: no redirection, 1: write to file
     char *filePath;
-};
-struct CommandLine {
+} CommandBlock;
+
+typedef struct CommandLine {
     CommandBlock *commands[MAX_CMD + 1];
-};
+} CommandLine;
+
+#endif //PART2_H
