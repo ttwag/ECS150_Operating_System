@@ -151,10 +151,10 @@ int lexer(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine) {
             // delimiters
             if (token != ' ') {
                 if (token == '|') {
-                    lexedCmdLine->tokens[lexInd] = createToken("|\0", PIPE, cmdInd + 1);
+                    lexedCmdLine->tokens[lexInd] = createToken("|", PIPE, cmdInd + 1);
                 }
                 else if (token == '<') {
-                    lexedCmdLine->tokens[lexInd] = createToken("<\0", REDIR_IN, cmdInd + 1);
+                    lexedCmdLine->tokens[lexInd] = createToken("<", REDIR_IN, cmdInd + 1);
                 }
                 else if (token == '>') {
                     lexedCmdLine->tokens[lexInd] = createToken(">\0", REDIR_OUT, cmdInd + 1);
@@ -177,9 +177,8 @@ int lexer(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine) {
     return 0;
 }
 
-Bool isRedirect(char *str) {
-    if (str == NULL) return False;
-    else if (strcmp(str, "<") == 0 || strcmp(str, ">") == 0) return True;
+bool isRedirect(TokenType token) {
+    if (token == REDIR_IN || token == REDIR_OUT) return True;
     return False;
 }
 
@@ -191,6 +190,7 @@ Note:
 - Currently only works with no piping
 - Need to expand ~
 */
+/*
 int parseCmdLine1(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *parsedCmdLine) {
     if (*lineLen <= 0) return 1;
     // create a new CommandBlock object
@@ -204,7 +204,6 @@ int parseCmdLine1(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *
         perror("calloc");
         exit(1);
     }
-    int size = *lineLen;
     int argInd = 0;
     parsedCmdLine->commands[0] = commandBlk;
     commandBlk->arg[0] = strdup(lexedCmdLine[0]);
@@ -243,22 +242,34 @@ int parseCmdLine1(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *
     else commandBlk->isBuiltIn = 0;
     return 0;
 }
+*/
 
 /*
 Input: Check if input is a built in command
 Output: return Yes -> 1, No -> 0
 */
-Bool cmdIsBuiltIn(char *cmd) {
+bool cmdIsBuiltIn(char *cmd) {
     if (cmd == NULL) return False;
-    else if (strcmp(cmd, "cd\0") == 0 || strcmp(cmd, "exit\0") == 0) return True;
+    else if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "exit") == 0) return True;
     else return False;
 }
 
-Bool isDelimiter(TokenType token) {
-    if (token == PIPE || token == REDIR_IN || token == REDIR_IN || token == REDIR_OUT || token == AMPERSAND) {
+bool isDelimiter(TokenType token) {
+    if (token == PIPE || token == REDIR_IN || token == REDIR_OUT || token == AMPERSAND) {
         return True;
     }
-    else return False;
+    return False;
+}
+
+const char *getState(ParserState state) {
+    switch (state) {
+        case STATE_START : return "STATE_START";
+        case STATE_CMDBLK : return "STATE_CMDBLK";
+        case STATE_AMP_END : return "STATE_AMP_END";
+        case STATE_REDIR_FILE : return "STATE_REDIR_FILE";
+        case STATE_REDIR_END : return "STATE_REDIR_END";
+        default : return "STATE_INVALID";
+    }
 }
 
 /*
@@ -272,6 +283,7 @@ int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
     CommandBlock *commandBlk = NULL;
     int cmdBlkInd = 0;
     int argInd = 0;
+    bool hasPipe = False;
     char *value = NULL;
     TokenType token = NO_TYPE;
     int loc = 0;
@@ -280,12 +292,13 @@ int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
         value = lexedCmdLine->tokens[i]->value;
         token = lexedCmdLine->tokens[i]->type;
         loc = lexedCmdLine->tokens[i]->loc;
-
+        printf("\nCurrent State: %s\n", getState(state));
+        printf("Curr Token, %s\n", getTokenType(token));
         switch(state) {
             case STATE_START : {
                 if (isDelimiter(token)) {
                     fprintf(stderr, "PARSE ERROR: Missing A Command at Location: %d\n", loc);
-                    return 1;
+                    state = STATE_INVALID;
                 }
                 else if (token == ID) {
                     commandBlk = (CommandBlock *)calloc(1, sizeof(CommandBlock));
@@ -293,26 +306,112 @@ int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
                     commandBlk->arg[argInd] = strdup(value);
                     commandBlk->isBuiltIn = cmdIsBuiltIn(value);
                     cmdBlkInd++, argInd++;
+                    state = STATE_CMDBLK;
                 }
-                else return 1;
+                else state = STATE_INVALID;
+                break;
             }
             case STATE_CMDBLK : {
-                if (argInd == 0 && isDelimiter(token)) {
-                    fprintf(stderr, "PARSE ERROR: Missing A Command at Location: %d\n", loc);
-                    return 1;
+                if (argInd >= MAX_ARG) {
+                    fprintf(stderr, "PARSE ERROR: Too Many Argument to Command %s at Location: %d\n", commandBlk->arg[0], loc);
+                    fprintf(stderr, "Max Number of Argument: %d\n", MAX_ARG);
+                    state = STATE_INVALID;
                 }
+                else if (argInd == 0 && isDelimiter(token)) {
+                    fprintf(stderr, "PARSE ERROR: Missing A Command at Location: %d\n", loc);
+                    state = STATE_INVALID;
+                }
+                else if (hasPipe == True && token == REDIR_IN) {
+                    fprintf(stderr, "PARSE ERROR: Error: Mis-located Input Redirection at Location: %d\n", loc);
+                    state = STATE_INVALID;
+                }
+                else if (token == PIPE) {
+                    if (i + 1 >= lexedCmdLine->length) {
+                        fprintf(stderr, "PARSE ERROR: Missing A Command at Location: %d\n", loc);
+                        state = STATE_INVALID;
+                    }
+                    else {
+                        hasPipe = True;
+                        commandBlk = (CommandBlock *)calloc(1, sizeof(CommandBlock));
+                        parsedCmdLine->commands[cmdBlkInd] = commandBlk;
+                        argInd = 0, cmdBlkInd++;
+                        state = STATE_CMDBLK;
+                    }
+                }
+                else if (token == ID) {
+                    commandBlk->arg[argInd] = strdup(value);
+                    if (argInd == 0) commandBlk->isBuiltIn = cmdIsBuiltIn(value);
+                    argInd++;
+                    state = STATE_CMDBLK;
+                }
+                else if (isRedirect(token)) {
+                    if (i + 1 >= lexedCmdLine->length) {
+                        fprintf(stderr, "PARSE ERROR: No Output File at Location: %d\n", loc);
+                        state = STATE_INVALID;
+                    }
+                    else if (strcmp(value, "<") == 0) {
+                        commandBlk->redirection = -1;
+                        state = STATE_REDIR_FILE;
+                    }
+                    else {
+                        commandBlk->redirection = 1;
+                        state = STATE_REDIR_FILE;
+                    }
+                }
+                else if (token == AMPERSAND) {
+                    parsedCmdLine->background = True;
+                    state = STATE_AMP_END;
+                }
+                else state = STATE_INVALID;
+                break;
             }
             case STATE_AMP_END : {
-                
-            }
-            case STATE_REDIR_END : {
-
+                fprintf(stderr, "PARSE ERROR: Mis-located Background Sign: %d\n", loc);
+                state = STATE_INVALID;
+                break;
             }
             case STATE_REDIR_FILE : {
-
+                if (isRedirect(token)) {
+                    fprintf(stderr, "PARSE ERROR: Cannot Have Multiple Redirection at Location: %d\n", loc);
+                    state = STATE_INVALID;
+                }
+                else if (isDelimiter(token)) {
+                    fprintf(stderr, "PARSE ERROR: No Output File at Location: %d\n", loc);
+                    state = STATE_INVALID;
+                }
+                else {
+                    commandBlk->filePath = strdup(value);
+                    state = STATE_REDIR_END;
+                }
+                break;
+            }
+            case STATE_REDIR_END : {
+                if (token == AMPERSAND) {
+                    parsedCmdLine->background = True;
+                    state = STATE_AMP_END;
+                }
+                else if (isRedirect(token)) {
+                    fprintf(stderr, "PARSE ERROR: Cannot Have Multiple Redirection at Location: %d\n", loc);
+                    state = STATE_INVALID;
+                }
+                else {
+                    fprintf(stderr, "PARSE ERROR: Redirection Is End of Input at Location: %d\n", loc);
+                    state = STATE_INVALID;
+                }
+                break;
+            }
+            case STATE_INVALID : {
+                return 1;
+                break;
+            }
+            default : {
+                state = STATE_INVALID;
+                break;
             }
         }
-    }    
+    }
+    commandBlk = NULL;
+    if (state == STATE_INVALID) return 1;
     return 0;
 }
 
@@ -400,7 +499,13 @@ const char *getTokenType(TokenType type) {
     }
 }
 
+const char *getBool(bool boolean) {
+    if (boolean == True) return "True";
+    else return "False";
+}
+
 void printLexedCmdLine(TokenList *lexedCmdLine) {
+    if (lexedCmdLine == NULL) return;
     printf("\nLexed Command Line:\n");
 
     if (lexedCmdLine != NULL) {
@@ -417,14 +522,16 @@ void printLexedCmdLine(TokenList *lexedCmdLine) {
 }
 
 void printParsedCmdLine(CommandLine *parsedCmdLine) {
+    if (parsedCmdLine == NULL) return;
     printf("\n\nParsed Command Line:\n");
+    printf("Run In Background? %s\n", getBool(parsedCmdLine->background));
     if (parsedCmdLine != NULL) {
         CommandBlock *commandBlk = NULL;
         int cmdCount = 1;
         for (int i = 0; i < MAX_CMD + 1; i++) {
             commandBlk = parsedCmdLine->commands[i];
             if (commandBlk != NULL) {
-                printf("Command Block %d\n", cmdCount);
+                printf("\nCommand Block %d\n", cmdCount);
                 printf("command: %s\n", commandBlk->arg[0]);
                 printf("arg:");
                 for (int j = 0; j < MAX_ARG + 1; j++) {

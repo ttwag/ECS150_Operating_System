@@ -10,7 +10,7 @@
 typedef enum {
     False,
     True
-} Bool;
+} bool;
 
 /*        Lexer        */
 typedef enum {
@@ -33,13 +33,20 @@ typedef struct {
     int length;
 } TokenList;
 
+// utility functions
+bool isRedirect(TokenType token);
+bool cmdIsBuiltIn(char *cmd);
+bool isDelimiter(TokenType token);
+const char *getTokenType(TokenType type);
+
 /*        Parser        */
 typedef enum {
     STATE_START,
     STATE_CMDBLK,
     STATE_AMP_END,
     STATE_REDIR_FILE,
-    STATE_REDIR_END
+    STATE_REDIR_END,
+    STATE_INVALID
 } ParserState;
 
 // built in command won't be mixed with pipes
@@ -48,13 +55,16 @@ typedef enum {
 typedef struct {
     char *arg[MAX_ARG + 1];
     int status;
-    int isBuiltIn;
+    bool isBuiltIn;
     int redirection; // -1: read from file, 0: no redirection, 1: write to file
     char *filePath;
 } CommandBlock;
 
 typedef struct CommandLine {
     CommandBlock *commands[MAX_CMD + 1];
+    bool background;
 } CommandLine;
+
+
 
 #endif //PART2_H
