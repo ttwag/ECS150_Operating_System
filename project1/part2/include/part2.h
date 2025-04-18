@@ -2,7 +2,7 @@
 #define PART2_H
 
 #define MAX_CL_CHAR 512
-#define MAX_CMD 4
+#define MAX_CMD 2
 #define MAX_ARG 16
 #define MAX_TOKEN MAX_CL_CHAR
 #define MAX_TOKEN_LEN 32
@@ -35,7 +35,7 @@ typedef struct {
 
 // utility functions
 bool isRedirect(TokenType token);
-bool cmdIsBuiltIn(char *cmd);
+bool cmdIsBuiltIn(const char *cmd);
 bool isDelimiter(TokenType token);
 const char *getTokenType(TokenType type);
 
@@ -61,8 +61,9 @@ typedef struct {
 } CommandBlock;
 
 typedef struct CommandLine {
-    CommandBlock *commands[MAX_CMD + 1];
+    CommandBlock *commands[MAX_CMD];
     bool background;
+    int cmdBlkNum;
 } CommandLine;
 
 

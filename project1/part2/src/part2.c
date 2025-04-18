@@ -58,7 +58,7 @@ void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine, Comman
     // reset the parsed command line
     if (parsedCmdLine != NULL) {
         // Check each commands in CommandLine
-        for (int i = 0; i < MAX_CMD + 1; i++) {
+        for (int i = 0; i < MAX_CMD; i++) {
             // if a Command exist
             if (parsedCmdLine->commands[i] != NULL) {
                 // free the arg array
@@ -85,7 +85,7 @@ void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine, Comman
 Input: A Token's value, type, and location
 Output: Returns a newly allocated Token with the provided inputs
 */
-Token *createToken(char *value, TokenType type, int loc) {
+Token *createToken(const char *value, TokenType type, int loc) {
     Token *currToken = (Token *)calloc(1, sizeof(Token));
     currToken->value = strdup(value);
     currToken->type = type;
@@ -183,72 +183,10 @@ bool isRedirect(TokenType token) {
 }
 
 /*
-Input: Array of tokens
-Output: commandLine object
-
-Note: 
-- Currently only works with no piping
-- Need to expand ~
-*/
-/*
-int parseCmdLine1(char *lexedCmdLine[MAX_TOKEN + 1], int *lineLen, CommandLine *parsedCmdLine) {
-    if (*lineLen <= 0) return 1;
-    // create a new CommandBlock object
-    if (isRedirect(lexedCmdLine[(*lineLen) - 1])) {
-        fprintf(stderr, "PARSE ERROR: Missing File\n");
-        return 1;
-    }
-    
-    CommandBlock *commandBlk = (CommandBlock *)calloc(1, sizeof(CommandBlock));
-    if (!commandBlk) {
-        perror("calloc");
-        exit(1);
-    }
-    int argInd = 0;
-    parsedCmdLine->commands[0] = commandBlk;
-    commandBlk->arg[0] = strdup(lexedCmdLine[0]);
-    for (int i = 0; i < size; i++) {
-        // error handling
-        if (i == 0 && isRedirect(lexedCmdLine[i])) {
-            fprintf(stderr, "PARSE ERROR: Missing A Command for Redirection\n");
-            return 1;
-        }
-
-        // parse tokens into some CommandBlocks
-        if (strcmp(lexedCmdLine[i], "<") == 0) {
-            commandBlk->redirection = -1;
-            commandBlk->filePath = strdup(lexedCmdLine[i + 1]);
-            break;
-        }
-        else if (strcmp(lexedCmdLine[i], ">") == 0) {
-            commandBlk->redirection = 1;
-            commandBlk->filePath = strdup(lexedCmdLine[i + 1]);
-            break;
-        }
-        else {
-            commandBlk->arg[argInd] = strdup(lexedCmdLine[i]);
-            argInd++;
-        }
-    }
-    if (argInd - 2 >= MAX_ARG) {
-        fprintf(stderr, "PARSE ERROR: Too Many Argument to Command %s\n", commandBlk->arg[0]);
-        fprintf(stderr, "Max Number of Argument: %d\n", MAX_ARG);
-        return 1;
-    }
-    // if built in command
-    if (strcmp(lexedCmdLine[0], "cd") == 0 || strcmp(lexedCmdLine[0], "exit") == 0) {
-        commandBlk->isBuiltIn = 1;
-    }
-    else commandBlk->isBuiltIn = 0;
-    return 0;
-}
-*/
-
-/*
 Input: Check if input is a built in command
 Output: return Yes -> 1, No -> 0
 */
-bool cmdIsBuiltIn(char *cmd) {
+bool cmdIsBuiltIn(const char *cmd) {
     if (cmd == NULL) return False;
     else if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "exit") == 0) return True;
     else return False;
@@ -274,7 +212,7 @@ const char *getState(ParserState state) {
 
 /*
 */
-int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
+int parseCmdLine(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
     if (lexedCmdLine == NULL || parsedCmdLine == NULL) return 1;
     if (lexedCmdLine->length <= 0) return 1;
     
@@ -298,6 +236,11 @@ int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
             case STATE_START : {
                 if (isDelimiter(token)) {
                     fprintf(stderr, "PARSE ERROR: Missing A Command at Location: %d\n", loc);
+                    state = STATE_INVALID;
+                }
+                else if (token == ID && cmdBlkInd >= MAX_CMD) {
+                    fprintf(stderr, "PARSE ERROR: Too Many Commands at Location: %d\n", loc);
+                    fprintf(stderr, "Maximum Number of Commands %d\n", MAX_CMD);
                     state = STATE_INVALID;
                 }
                 else if (token == ID) {
@@ -324,6 +267,12 @@ int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
                 else if (hasPipe == True && token == REDIR_IN) {
                     fprintf(stderr, "PARSE ERROR: Error: Mis-located Input Redirection at Location: %d\n", loc);
                     state = STATE_INVALID;
+                }
+                else if (token == PIPE && cmdBlkInd >= MAX_CMD) {
+                    fprintf(stderr, "PARSE ERROR: Too Many Commands at Location: %d\n", loc);
+                    fprintf(stderr, "Maximum Number of Commands %d\n", MAX_CMD);
+                    state = STATE_INVALID;
+                    break;
                 }
                 else if (token == PIPE) {
                     if (i + 1 >= lexedCmdLine->length) {
@@ -410,11 +359,39 @@ int parseCmdLine(TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
             }
         }
     }
+    parsedCmdLine->cmdBlkNum = cmdBlkInd;
     commandBlk = NULL;
     if (state == STATE_INVALID) return 1;
     return 0;
 }
 
+void pipeLine(const CommandBlock *cmdBlk1, const CommandBlock *cmdBlk2) {
+    int fd[2];
+
+    pipe(fd);
+    if (fork() != 0) { /*parent process*/
+        close(fd[0]);
+        dup2(fd[1], STDOUT_FILENO);
+        close(fd[1]);
+        execvp(cmdBlk1->arg[0], cmdBlk1->arg);
+    }
+    else { /*child process*/
+        close(fd[1]);
+        dup2(fd[0], STDIN_FILENO);
+        close(fd[0]);
+        execvp(cmdBlk1->arg[0], cmdBlk1->arg);
+    }
+}
+
+void closeAllFd(int fd[MAX_CMD][2]) {
+    for (int i = 0; i < MAX_CMD; i++) {
+        for (int j = 0; j < 2; j++) {
+            if (fd[i][j] != 0) {
+                close(fd[i][j]);
+            }
+        }
+    }
+}
 
 /*
 Input: CommandLine Object
@@ -422,7 +399,10 @@ Output: Executes the command line
 - exit command will return a status code 2
 - with redirection, overwrite the old file or create a new file with u+w+x if file doesn't exist
 */
-int executeCmdLine(CommandLine *parsedCmdLine) {
+int executeCmdLine(const CommandLine *parsedCmdLine) {
+    if (parsedCmdLine == NULL) return 1;
+    int size = parsedCmdLine->cmdBlkNum;
+
     pid_t pid = 0;
     printf("Output:\n");
     CommandBlock *commandBlk = parsedCmdLine->commands[0];
@@ -442,7 +422,8 @@ int executeCmdLine(CommandLine *parsedCmdLine) {
             return 2;
         }
     }
-    else { // spawn children to complete commands
+    
+    else if (parsedCmdLine->cmdBlkNum == 1){ // spawn children to complete commands
         pid = fork();
         // parent process
         if (pid > 0) {
@@ -484,6 +465,57 @@ int executeCmdLine(CommandLine *parsedCmdLine) {
             exit(1);
         }
     }
+    else {
+        pid_t processPid[MAX_CMD] = {};
+        int fd[MAX_CMD][2] = {};
+        // Get pipe all file descriptor
+
+        for (int i = 0; i < size; i++) {
+            // set up the pipe
+            pipe(fd[i]);
+            // fork all and save PID into an array
+            pid_t pid = fork();
+            if (pid > 0) { /*parent*/
+                // save pid to an array
+                processPid[i] = pid;
+            }
+            else if (pid == 0) { /*Child*/
+                CommandBlock *commandBlk = parsedCmdLine->commands[i];
+                if (i > 0) { /* Not first command */
+                    // Read input
+                    dup2(fd[i-1][0], STDIN_FILENO);
+                    
+                    // close all unused pipes
+                    closeAllFd(fd);
+                    execvp(commandBlk->arg[0], commandBlk->arg);
+                }
+                if (i < size - 1) { /* Not last command */
+                    // Display to output
+                    dup2(fd[i][1], STDOUT_FILENO);
+                    
+                    // close all unused pipes
+                    closeAllFd(fd);
+                    execvp(commandBlk->arg[0], commandBlk->arg);
+                }
+                // if only one command
+                if (size == 1) {
+                    // close all unused pipes
+                    closeAllFd(fd);
+                    // executes command
+                }
+            }
+        }
+        // close all unused pipes
+        closeAllFd(fd);
+
+        int exitstatus = 0;
+        // wait all by the PID array
+        for (int i = 0; i < size; i++) {
+            // Store the exit status into a exit status array
+            waitpid(processPid[i], &exitstatus, 0);
+            parsedCmdLine->commands[i]->status = exitstatus;
+        }
+    }
     return 0;
 }
 
@@ -517,18 +549,20 @@ void printLexedCmdLine(TokenList *lexedCmdLine) {
                 
             }
         }
+        printf("\n\n");
     }
     return;
 }
 
-void printParsedCmdLine(CommandLine *parsedCmdLine) {
+void printParsedCmdLine(const CommandLine *parsedCmdLine) {
     if (parsedCmdLine == NULL) return;
     printf("\n\nParsed Command Line:\n");
+    printf("Number of Command Blocks: %d\n", parsedCmdLine->cmdBlkNum);
     printf("Run In Background? %s\n", getBool(parsedCmdLine->background));
     if (parsedCmdLine != NULL) {
         CommandBlock *commandBlk = NULL;
         int cmdCount = 1;
-        for (int i = 0; i < MAX_CMD + 1; i++) {
+        for (int i = 0; i < MAX_CMD; i++) {
             commandBlk = parsedCmdLine->commands[i];
             if (commandBlk != NULL) {
                 printf("\nCommand Block %d\n", cmdCount);
@@ -552,13 +586,13 @@ void printParsedCmdLine(CommandLine *parsedCmdLine) {
     printf("\n");
 }
 
-void printExitStatus(char cmdLine[MAX_CL_CHAR + 1], CommandLine *parsedCmdLine) {
+void printExitStatus(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parsedCmdLine) {
     printf("+ completed '%s' ", cmdLine);
     CommandBlock *commandBlk = NULL;
-    for (int i = 0; i < MAX_CMD + 1; i++) {
+    for (int i = 0; i < MAX_CMD; i++) {
         commandBlk = parsedCmdLine->commands[i];
         if (commandBlk != NULL) {
-            printf("[%d]\n", commandBlk->status);
+            printf("[%d]", commandBlk->status);
         }
     }
     printf("\n");
@@ -578,9 +612,8 @@ int main(void) {
 
         // Lex
         if (lexer(cmdLine, &lexedCmdLine)) continue;
-        printLexedCmdLine(&lexedCmdLine);
-        printf("\n\n");
-
+        // printLexedCmdLine(&lexedCmdLine);
+        
         // Parse
         if (parseCmdLine(&lexedCmdLine, &parsedCmdLine)) continue;
         printParsedCmdLine(&parsedCmdLine);
