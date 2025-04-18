@@ -2,7 +2,7 @@
 #define PART2_H
 
 #define MAX_CL_CHAR 512
-#define MAX_CMD 2
+#define MAX_CMD 4
 #define MAX_ARG 16
 #define MAX_TOKEN MAX_CL_CHAR
 #define MAX_TOKEN_LEN 32

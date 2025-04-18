@@ -230,8 +230,8 @@ int parseCmdLine(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
         value = lexedCmdLine->tokens[i]->value;
         token = lexedCmdLine->tokens[i]->type;
         loc = lexedCmdLine->tokens[i]->loc;
-        printf("\nCurrent State: %s\n", getState(state));
-        printf("Curr Token, %s\n", getTokenType(token));
+        // printf("\nCurrent State: %s\n", getState(state));
+        // printf("Curr Token, %s\n", getTokenType(token));
         switch(state) {
             case STATE_START : {
                 if (isDelimiter(token)) {
@@ -365,24 +365,6 @@ int parseCmdLine(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
     return 0;
 }
 
-void pipeLine(const CommandBlock *cmdBlk1, const CommandBlock *cmdBlk2) {
-    int fd[2];
-
-    pipe(fd);
-    if (fork() != 0) { /*parent process*/
-        close(fd[0]);
-        dup2(fd[1], STDOUT_FILENO);
-        close(fd[1]);
-        execvp(cmdBlk1->arg[0], cmdBlk1->arg);
-    }
-    else { /*child process*/
-        close(fd[1]);
-        dup2(fd[0], STDIN_FILENO);
-        close(fd[0]);
-        execvp(cmdBlk1->arg[0], cmdBlk1->arg);
-    }
-}
-
 void closeAllFd(int fd[MAX_CMD][2]) {
     for (int i = 0; i < MAX_CMD; i++) {
         for (int j = 0; j < 2; j++) {
@@ -391,6 +373,30 @@ void closeAllFd(int fd[MAX_CMD][2]) {
             }
         }
     }
+}
+
+void redirection(const CommandBlock *commandBlk) {
+    if (commandBlk == NULL) return;
+    // file read
+    if (commandBlk->redirection == -1) {
+        int fd = open(commandBlk->filePath, O_RDONLY);
+        if (fd == -1) {
+            perror("open");
+            exit(1);
+        }
+        dup2(fd, STDIN_FILENO);
+        close(fd);
+    } // file write
+    else if (commandBlk->redirection == 1) {
+        int fd = open(commandBlk->filePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+        if (fd == -1) {
+            perror("open");
+            exit(1);
+        }
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+    }
+    return;
 }
 
 /*
@@ -403,8 +409,6 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
     if (parsedCmdLine == NULL) return 1;
     int size = parsedCmdLine->cmdBlkNum;
 
-    pid_t pid = 0;
-    printf("Output:\n");
     CommandBlock *commandBlk = parsedCmdLine->commands[0];
     if (commandBlk == NULL) return 0;
 
@@ -422,51 +426,9 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
             return 2;
         }
     }
-    
-    else if (parsedCmdLine->cmdBlkNum == 1){ // spawn children to complete commands
-        pid = fork();
-        // parent process
-        if (pid > 0) {
-            // wait for all children to finish
-            int childStatus = 0;
-            waitpid(-1, &childStatus, 0);
-            commandBlk->status = WEXITSTATUS(childStatus);
-        }
-        // child process
-        else if (pid == 0) {
-            // file read
-            if (commandBlk->redirection == -1) {
-                int fd = open(commandBlk->filePath, O_RDONLY);
-                if (fd == -1) {
-                    perror("open");
-                    exit(1);
-                }
-                dup2(fd, STDIN_FILENO);
-                close(fd);
-            } // file write
-            else if (commandBlk->redirection == 1) {
-                int fd = open(commandBlk->filePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
-                if (fd == -1) {
-                    perror("open");
-                    exit(1);
-                }
-                dup2(fd, STDOUT_FILENO);
-                close(fd);
-            }
-            // execute command
-            if (execvp(commandBlk->arg[0], commandBlk->arg) == -1) {
-                perror("execvp");
-                exit(1);
-            }
-            exit(0);
-        }
-        else {
-            perror("fork");
-            exit(1);
-        }
-    }
     else {
         pid_t processPid[MAX_CMD] = {};
+        pid_t pid = 0;
         int fd[MAX_CMD][2] = {};
         // Get pipe all file descriptor
 
@@ -474,7 +436,7 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
             // set up the pipe
             pipe(fd[i]);
             // fork all and save PID into an array
-            pid_t pid = fork();
+            pid = fork();
             if (pid > 0) { /*parent*/
                 // save pid to an array
                 processPid[i] = pid;
@@ -484,28 +446,23 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
                 if (i > 0) { /* Not first command */
                     // Read input
                     dup2(fd[i-1][0], STDIN_FILENO);
-                    
-                    // close all unused pipes
-                    closeAllFd(fd);
-                    execvp(commandBlk->arg[0], commandBlk->arg);
                 }
                 if (i < size - 1) { /* Not last command */
                     // Display to output
                     dup2(fd[i][1], STDOUT_FILENO);
                     
-                    // close all unused pipes
-                    closeAllFd(fd);
-                    execvp(commandBlk->arg[0], commandBlk->arg);
                 }
-                // if only one command
-                if (size == 1) {
-                    // close all unused pipes
-                    closeAllFd(fd);
-                    // executes command
+                // close all unused pipes
+                closeAllFd(fd);
+                if (commandBlk->redirection != 0) redirection(commandBlk);
+                if (execvp(commandBlk->arg[0], commandBlk->arg) == -1) {
+                    perror("execvp");
+                    exit(1);
                 }
+                exit(0);
             }
         }
-        // close all unused pipes
+        // close all parent's unused pipes
         closeAllFd(fd);
 
         int exitstatus = 0;
@@ -513,7 +470,7 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
         for (int i = 0; i < size; i++) {
             // Store the exit status into a exit status array
             waitpid(processPid[i], &exitstatus, 0);
-            parsedCmdLine->commands[i]->status = exitstatus;
+            parsedCmdLine->commands[i]->status = WEXITSTATUS(exitstatus);
         }
     }
     return 0;
@@ -592,7 +549,7 @@ void printExitStatus(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *par
     for (int i = 0; i < MAX_CMD; i++) {
         commandBlk = parsedCmdLine->commands[i];
         if (commandBlk != NULL) {
-            printf("[%d]", commandBlk->status);
+            printf("[%d]", (commandBlk->status));
         }
     }
     printf("\n");
@@ -616,12 +573,12 @@ int main(void) {
         
         // Parse
         if (parseCmdLine(&lexedCmdLine, &parsedCmdLine)) continue;
-        printParsedCmdLine(&parsedCmdLine);
+        // printParsedCmdLine(&parsedCmdLine);
 
         // Execute
-        // int status = executeCmdLine(&parsedCmdLine);
-        // printExitStatus(cmdLine, &parsedCmdLine);
-        // if (status == 2) exit(0);
+        int status = executeCmdLine(&parsedCmdLine);
+        printExitStatus(cmdLine, &parsedCmdLine);
+        if (status == 2) exit(0);
     }
     return 0;
 }
