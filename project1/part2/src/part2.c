@@ -212,7 +212,7 @@ const char *getState(ParserState state) {
 
 /*
 */
-int parseCmdLine(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
+int parser(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
     if (lexedCmdLine == NULL || parsedCmdLine == NULL) return 1;
     if (lexedCmdLine->length <= 0) return 1;
     
@@ -405,12 +405,21 @@ Output: Executes the command line
 - exit command will return a status code 2
 - with redirection, overwrite the old file or create a new file with u+w+x if file doesn't exist
 */
-int executeCmdLine(const CommandLine *parsedCmdLine) {
-    if (parsedCmdLine == NULL) return 1;
+int executeCmdLine(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parsedCmdLine) {
+    if (parsedCmdLine == NULL) return 0;
     int size = parsedCmdLine->cmdBlkNum;
-
+    
     CommandBlock *commandBlk = parsedCmdLine->commands[0];
     if (commandBlk == NULL) return 0;
+
+    if (parsedCmdLine->background == True) {
+        pid_t pid = fork();
+        if (pid > 0) return 0;
+        else if (pid < 0) {
+            perror("fork");
+            exit(1);
+        } 
+    }
 
     // Handle built-in commands
     if (commandBlk->isBuiltIn) {
@@ -423,7 +432,8 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
         else if (strcmp(commandBlk->arg[0], "exit") == 0) {
             printf("Bye...\n");
             commandBlk->status = 0;
-            return 2;
+            printExitStatus(cmdLine, parsedCmdLine);
+            exit(0);
         }
     }
     else {
@@ -461,6 +471,10 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
                 }
                 exit(0);
             }
+            else {
+                perror("fork");
+                exit(1);
+            }
         }
         // close all parent's unused pipes
         closeAllFd(fd);
@@ -473,6 +487,7 @@ int executeCmdLine(const CommandLine *parsedCmdLine) {
             parsedCmdLine->commands[i]->status = WEXITSTATUS(exitstatus);
         }
     }
+    printExitStatus(cmdLine, parsedCmdLine);
     return 0;
 }
 
@@ -544,7 +559,7 @@ void printParsedCmdLine(const CommandLine *parsedCmdLine) {
 }
 
 void printExitStatus(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parsedCmdLine) {
-    printf("+ completed '%s' ", cmdLine);
+    printf("\n+ completed '%s' ", cmdLine);
     CommandBlock *commandBlk = NULL;
     for (int i = 0; i < MAX_CMD; i++) {
         commandBlk = parsedCmdLine->commands[i];
@@ -572,13 +587,13 @@ int main(void) {
         // printLexedCmdLine(&lexedCmdLine);
         
         // Parse
-        if (parseCmdLine(&lexedCmdLine, &parsedCmdLine)) continue;
+        if (parser(&lexedCmdLine, &parsedCmdLine)) continue;
         // printParsedCmdLine(&parsedCmdLine);
 
         // Execute
-        int status = executeCmdLine(&parsedCmdLine);
-        printExitStatus(cmdLine, &parsedCmdLine);
-        if (status == 2) exit(0);
+        executeCmdLine(cmdLine, &parsedCmdLine);
+        // printExitStatus(cmdLine, &parsedCmdLine);
+        // if (status == 2) exit(0);
     }
     return 0;
 }

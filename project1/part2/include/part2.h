@@ -33,12 +33,6 @@ typedef struct {
     int length;
 } TokenList;
 
-// utility functions
-bool isRedirect(TokenType token);
-bool cmdIsBuiltIn(const char *cmd);
-bool isDelimiter(TokenType token);
-const char *getTokenType(TokenType type);
-
 /*        Parser        */
 typedef enum {
     STATE_START,
@@ -66,6 +60,11 @@ typedef struct CommandLine {
     int cmdBlkNum;
 } CommandLine;
 
-
+// utility functions
+bool isRedirect(TokenType token);
+bool cmdIsBuiltIn(const char *cmd);
+bool isDelimiter(TokenType token);
+const char *getTokenType(TokenType type);
+void printExitStatus(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parsedCmdLine);
 
 #endif //PART2_H
