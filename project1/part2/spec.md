@@ -5,7 +5,6 @@
 * A program has a maximum of **16** non-null arguments
 * Maximum length of individual tokens never exceeds **32** characters
 * Shell can use $PATH to specify the program's location
-* Shell expands "~" to the home directory path
 * Shell tokenizes command line into strings with whitespace as the delimiters
 
 ## Shell Built-In Command
@@ -55,7 +54,7 @@ PIPE : '|';
 AMPERSAND : '&';
 REDIR_OUT : '>'; // At most one < or >
 REDIR_IN : '<';
-ID : (~([a-zA-Z] | [0-9] | '_' | '.' | '/' | '~'))+;
+ID : (~([a-zA-Z] | [0-9] | '_' | '.' | '/'))+;
 ```
 
 ## Parser
@@ -70,14 +69,12 @@ ID : (~([a-zA-Z] | [0-9] | '_' | '.' | '/' | '~'))+;
 
 * Objective: 
     * Parses the lexed tokens into an commandLine object
-    * Expands any ~
     * Handle redirection by adding the correct syscall
 
 * Syntax:
 ```antlr
 commandLine 
-    : END
-    | command AMPERSAND? END
+    : command AMPERSAND? END
     | redirect AMPERSAND? END
     ;
 command : args ((PIPE args)+)? (PIPE redirect)?;

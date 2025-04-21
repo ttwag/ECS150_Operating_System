@@ -4,12 +4,8 @@
 /*
 ttwagShell
 
-Issue: 
-- Not organized
-- Cannot expand any path (EX: ~)
-- Cannot Pipe
-- Should report syscall error
-- How to report failure of library functions
+Author: Tao Wang
+Date: April 21, 2025
 */
 
 void display_prompt(void) {
@@ -22,13 +18,13 @@ void display_prompt(void) {
 Input: an empty string
 Output: a string filled with command line inputs
 */
-int getCmdLine(char cmdLine[MAX_CL_CHAR + 1]) {
+Status getCmdLine(char cmdLine[MAX_CL_CHAR + 1]) {
     /* Get command line */
     if (!fgets(cmdLine, MAX_CL_CHAR + 1, stdin)) {
         perror("fgets");
-        return 1;
+        return PARSE_ERROR;
     }
-    return 0;
+    return NO_ERROR;
 }
 
 /*
@@ -53,6 +49,7 @@ void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine, Comman
                 lexedCmdLine->tokens[i] = NULL;
             }
         }
+        lexedCmdLine->length = 0;
     }
 
     // reset the parsed command line
@@ -78,6 +75,8 @@ void resetCmdLine(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine, Comman
                 parsedCmdLine->commands[i] = NULL;
             }
         }
+        parsedCmdLine->background = False;
+        parsedCmdLine->cmdBlkNum = 0;
     }
 }
 
@@ -88,6 +87,10 @@ Output: Returns a newly allocated Token with the provided inputs
 Token *createToken(const char *value, TokenType type, int loc) {
     Token *currToken = (Token *)calloc(1, sizeof(Token));
     currToken->value = strdup(value);
+    if (currToken->value == NULL) {
+        perror("strdup");
+        exit(1);
+    }
     currToken->type = type;
     currToken->loc = loc;
     return currToken;
@@ -95,29 +98,26 @@ Token *createToken(const char *value, TokenType type, int loc) {
 
 /*
 Input: Command line user input (EX: ... \n \0)
-Output: An array of tokens without the WHITESPACE;
-        lineLen - the size of the array of tokens;
-
-Note: Need to error handle strdup
+Output: Tokenized user input;
 */
-int lexer(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine) {
+Status lexer(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine) {
     size_t strLen = strlen(cmdLine);
     // If input is within limit, the last char should be a newline
     // Remove the trailing newline char from cmdLine
     if (strLen > 0) {
-        if (cmdLine[strLen - 1] == '\n' && strLen == 1) return 1;
-        else if (cmdLine[strLen - 1] == '\n') {
+        // if input is too long, the carriage return would not be recorded
+        if (cmdLine[strLen - 1] == '\n') {
             cmdLine[strLen - 1] = '\0';
         }
         else {
             fprintf(stderr, "LEX ERROR: Command Line Input is Too Long\n");
             fprintf(stderr, "Maximum Command Line Input Length (Include \\n): %d\n", MAX_CL_CHAR);
-            return 1;
+            return PARSE_ERROR;
         }
     }
     else {
         fprintf(stderr, "LEX ERROR: Command is Too Short\n");
-        return 1;
+        return PARSE_ERROR;
     }
     
     // Lex the command line
@@ -135,7 +135,7 @@ int lexer(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine) {
             if (buffInd >= MAX_TOKEN_LEN) { 
                 fprintf(stderr, "LEX ERROR: A Command, Argument, Path, or File Name Is Too Long\n");
                 fprintf(stderr, "Maximum Word Length: %d\n", MAX_TOKEN_LEN);
-                return 1;
+                return PARSE_ERROR;
             }
             tokenBuffer[buffInd] = token;
             buffInd++;
@@ -174,7 +174,7 @@ int lexer(char cmdLine[MAX_CL_CHAR + 1], TokenList *lexedCmdLine) {
         lexInd++;
     }
     lexedCmdLine->length = lexInd;
-    return 0;
+    return NO_ERROR;
 }
 
 bool isRedirect(TokenType token) {
@@ -183,15 +183,19 @@ bool isRedirect(TokenType token) {
 }
 
 /*
-Input: Check if input is a built in command
-Output: return Yes -> 1, No -> 0
+Input: Check if command is a built-in command
+Output: return Yes -> True, No -> False
 */
 bool cmdIsBuiltIn(const char *cmd) {
     if (cmd == NULL) return False;
     else if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "exit") == 0) return True;
-    else return False;
+    return False;
 }
 
+/*
+Input: Check if token is a delimiter: |, &, >, <
+Output: return Yes -> True, No -> False
+*/
 bool isDelimiter(TokenType token) {
     if (token == PIPE || token == REDIR_IN || token == REDIR_OUT || token == AMPERSAND) {
         return True;
@@ -199,6 +203,10 @@ bool isDelimiter(TokenType token) {
     return False;
 }
 
+/*
+Input: ParserState
+Output: Returns the ParserState as a string
+*/
 const char *getState(ParserState state) {
     switch (state) {
         case STATE_START : return "STATE_START";
@@ -211,10 +219,12 @@ const char *getState(ParserState state) {
 }
 
 /*
+Input: Tokenized command line inputs
+Output: A pointer to the parsed CommandLine object
 */
-int parser(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
-    if (lexedCmdLine == NULL || parsedCmdLine == NULL) return 1;
-    if (lexedCmdLine->length <= 0) return 1;
+Status parser(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
+    if (lexedCmdLine == NULL || parsedCmdLine == NULL) return PARSE_ERROR;
+    if (lexedCmdLine->length <= 0) return PARSE_ERROR;
     
     // Parser FSM
     ParserState state = STATE_START;
@@ -361,11 +371,15 @@ int parser(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
     }
     parsedCmdLine->cmdBlkNum = cmdBlkInd;
     commandBlk = NULL;
-    if (state == STATE_INVALID) return 1;
-    return 0;
+    if (state == STATE_INVALID) return PARSE_ERROR;
+    return NO_ERROR;
 }
 
-void closeAllFd(int fd[MAX_CMD][2]) {
+/*
+Input: A collection of file descriptor with size 2
+Output: Close all unused file descriptor
+*/
+void closeAllFd(int fd[MAX_CMD - 1][2]) {
     for (int i = 0; i < MAX_CMD; i++) {
         for (int j = 0; j < 2; j++) {
             if (fd[i][j] != 0) {
@@ -402,23 +416,22 @@ void redirection(const CommandBlock *commandBlk) {
 /*
 Input: CommandLine Object
 Output: Executes the command line
-- exit command will return a status code 2
 - with redirection, overwrite the old file or create a new file with u+w+x if file doesn't exist
 */
-int executeCmdLine(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parsedCmdLine) {
-    if (parsedCmdLine == NULL) return 0;
+Status executor(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parsedCmdLine) {
+    if (parsedCmdLine == NULL) return PARSE_ERROR;
     int size = parsedCmdLine->cmdBlkNum;
     
     CommandBlock *commandBlk = parsedCmdLine->commands[0];
-    if (commandBlk == NULL) return 0;
+    if (commandBlk == NULL) return PARSE_ERROR;
 
     if (parsedCmdLine->background == True) {
         pid_t pid = fork();
-        if (pid > 0) return 0;
+        if (pid > 0) return NO_ERROR;
         else if (pid < 0) {
             perror("fork");
             exit(1);
-        } 
+        }
     }
 
     // Handle built-in commands
@@ -426,12 +439,14 @@ int executeCmdLine(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parse
         if (strcmp(commandBlk->arg[0], "cd") == 0){
             if (chdir(commandBlk->arg[1]) == -1) {
                 fprintf(stderr, "Error: cannot cd into directory\n");
-                commandBlk->status = 1;
+                commandBlk->proStatus = 1;
+                printExitStatus(cmdLine, parsedCmdLine);
+                return LAUNCH_ERROR;
             }
         }
         else if (strcmp(commandBlk->arg[0], "exit") == 0) {
             printf("Bye...\n");
-            commandBlk->status = 0;
+            commandBlk->proStatus = 0;
             printExitStatus(cmdLine, parsedCmdLine);
             exit(0);
         }
@@ -439,7 +454,7 @@ int executeCmdLine(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parse
     else {
         pid_t processPid[MAX_CMD] = {};
         pid_t pid = 0;
-        int fd[MAX_CMD][2] = {};
+        int fd[MAX_CMD - 1][2] = {};
         // Get pipe all file descriptor
 
         for (int i = 0; i < size; i++) {
@@ -484,13 +499,19 @@ int executeCmdLine(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parse
         for (int i = 0; i < size; i++) {
             // Store the exit status into a exit status array
             waitpid(processPid[i], &exitstatus, 0);
-            parsedCmdLine->commands[i]->status = WEXITSTATUS(exitstatus);
+            parsedCmdLine->commands[i]->proStatus = WEXITSTATUS(exitstatus);
         }
     }
     printExitStatus(cmdLine, parsedCmdLine);
-    return 0;
+
+    if (parsedCmdLine->background == True) exit(0);
+    return NO_ERROR;
 }
 
+/*
+Input: TokenType
+Output: Returns TokenType as string
+*/
 const char *getTokenType(TokenType type) {
     switch(type) {
         case NO_TYPE: return "NO_TYPE";
@@ -503,12 +524,20 @@ const char *getTokenType(TokenType type) {
     }
 }
 
+/*
+Input: bool type
+Output: Returns bool as a string
+*/
 const char *getBool(bool boolean) {
     if (boolean == True) return "True";
-    else return "False";
+    return "False";
 }
 
-void printLexedCmdLine(TokenList *lexedCmdLine) {
+/*
+Input: TokenList pointer
+Output: Printed TokenList
+*/
+void printLexedCmdLine(const TokenList *lexedCmdLine) {
     if (lexedCmdLine == NULL) return;
     printf("\nLexed Command Line:\n");
 
@@ -526,6 +555,10 @@ void printLexedCmdLine(TokenList *lexedCmdLine) {
     return;
 }
 
+/*
+Input: CommandLine pointer
+Output: Printed CommandLine
+*/
 void printParsedCmdLine(const CommandLine *parsedCmdLine) {
     if (parsedCmdLine == NULL) return;
     printf("\n\nParsed Command Line:\n");
@@ -546,7 +579,7 @@ void printParsedCmdLine(const CommandLine *parsedCmdLine) {
                     }
                 }
                 printf("\n");
-                printf("status: %d\n", commandBlk->status);
+                printf("status: %d\n", commandBlk->proStatus);
                 printf("isBuiltIn: %d\n", commandBlk->isBuiltIn);
                 printf("redirection: %d\n", commandBlk->redirection);
                 printf("file: %s\n", commandBlk->filePath);
@@ -558,13 +591,17 @@ void printParsedCmdLine(const CommandLine *parsedCmdLine) {
     printf("\n");
 }
 
+/*
+Input: Command line input and CommandLine pointer
+Output: Printed exist status of the CommandLine
+*/
 void printExitStatus(const char cmdLine[MAX_CL_CHAR + 1], const CommandLine *parsedCmdLine) {
     printf("\n+ completed '%s' ", cmdLine);
     CommandBlock *commandBlk = NULL;
     for (int i = 0; i < MAX_CMD; i++) {
         commandBlk = parsedCmdLine->commands[i];
         if (commandBlk != NULL) {
-            printf("[%d]", (commandBlk->status));
+            printf("[%d]", (commandBlk->proStatus));
         }
     }
     printf("\n");
@@ -580,20 +617,18 @@ int main(void) {
         resetCmdLine(cmdLine, &lexedCmdLine, &parsedCmdLine);
         
         // Get cmdLine input
-        if (getCmdLine(cmdLine)) continue;
+        if (getCmdLine(cmdLine) != NO_ERROR) continue;
 
         // Lex
-        if (lexer(cmdLine, &lexedCmdLine)) continue;
+        if (lexer(cmdLine, &lexedCmdLine) != NO_ERROR) continue;
         // printLexedCmdLine(&lexedCmdLine);
         
         // Parse
-        if (parser(&lexedCmdLine, &parsedCmdLine)) continue;
+        if (parser(&lexedCmdLine, &parsedCmdLine) != NO_ERROR) continue;
         // printParsedCmdLine(&parsedCmdLine);
 
         // Execute
-        executeCmdLine(cmdLine, &parsedCmdLine);
-        // printExitStatus(cmdLine, &parsedCmdLine);
-        // if (status == 2) exit(0);
+        if (executor(cmdLine, &parsedCmdLine) != NO_ERROR) continue;
     }
     return 0;
 }

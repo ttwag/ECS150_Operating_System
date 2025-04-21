@@ -12,6 +12,12 @@ typedef enum {
     True
 } bool;
 
+typedef enum {
+    NO_ERROR = 0,
+    PARSE_ERROR = 1,
+    LAUNCH_ERROR = 2
+} Status;
+
 /*        Lexer        */
 typedef enum {
     NO_TYPE,
@@ -48,7 +54,7 @@ typedef enum {
 
 typedef struct {
     char *arg[MAX_ARG + 1];
-    int status;
+    int proStatus;
     bool isBuiltIn;
     int redirection; // -1: read from file, 0: no redirection, 1: write to file
     char *filePath;
