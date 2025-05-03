@@ -360,7 +360,7 @@ Status parser(const TokenList *lexedCmdLine, CommandLine *parsedCmdLine) {
                 break;
             }
             case STATE_INVALID : {
-                return 1;
+                return PARSE_ERROR;
                 break;
             }
             default : {
