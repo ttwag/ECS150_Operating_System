@@ -49,9 +49,6 @@ typedef enum {
     STATE_INVALID
 } ParserState;
 
-// built in command won't be mixed with pipes
-// redirection
-
 typedef struct {
     char *arg[MAX_ARG + 1];
     int proStatus;
