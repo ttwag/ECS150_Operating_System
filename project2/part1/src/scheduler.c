@@ -58,7 +58,10 @@ int scheduler_run(void (*task_func)(int),
     int task_id = 0;
     while (task_sched[id] != -1) {
         task_id = task_sched[id];
-        if (task_id >= task_cnt) return 1;
+        if (task_id >= task_cnt) {
+            freeThreads();
+            return 1;
+        }
         swapcontext(&main_context, &(usrThreads[task_id]->context));
         id++;
     }
