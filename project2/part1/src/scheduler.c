@@ -1,6 +1,7 @@
+#include <stdlib.h>
+
 #define _XOPEN_SOURCE
 #include <ucontext.h>
-#include <stdlib.h>
 
 #define STACK_SIZE 4096
 #define MAX_THREADS 100
@@ -31,7 +32,9 @@ void freeThreads() {
 }
 
 /*
-returns 1 if schedule does not work
+input: task_function, number of tasks, task schedule
+output: returns 1 if number of schedule is out-of-limit or a schedule does not work
+        returns 0 if all tasks were scheduled and completed
 */
 int scheduler_run(void (*task_func)(int),
                   int task_cnt,
@@ -72,8 +75,9 @@ int scheduler_run(void (*task_func)(int),
     return 0;
 }
 
+// input: id of the current Thread
+// output: switch from current task to the main thread
 void scheduler_yield(int task_id)
 {
-    // switch from current task to the main thread
     swapcontext(&(usrThreads[task_id]->context), &main_context);
 }
