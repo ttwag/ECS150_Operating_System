@@ -38,7 +38,7 @@ int queue_dequeue(queue_t queue, void **data);
 /*
  * queue_delete - Delete a data
  * @queue: queue_t in which to delete the data
- * @data: The data to delete
+ * @data: The data to delete from the queue
  * Return: 0 if success, -1 if queue is NULL, empty, or doesn't contain the data
  */
 int queue_delete(queue_t queue, void *data);
