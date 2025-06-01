@@ -23,7 +23,7 @@ int uthread_run(bool preempt, void (*func)(void *), void *arg);
 
 
 /*
- * uthread_create - Create a new thread with func(arg) for the scheduler to schedule
+ * uthread_create - Create a new thread with func(arg) and have the scheduler schedule the created thread
  * @func: Function for the new thread to execute
  * @arg: Argument passed to func
  * Return: Thread ID of the new thread, -1 if not successful
@@ -46,7 +46,7 @@ void uthread_exit(void);
 
 /*
  * uthread_self - shows the identification number of the current thread
- * Return: Thread ID of the current thread
+ * Return: Thread ID of the current thread, -1 if failure 
  */
 uthread_t uthread_self(void);
 

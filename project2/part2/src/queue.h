@@ -23,7 +23,7 @@ int queue_destroy(queue_t queue);
  * queue_enqueue - Enqueue a data
  * @queue: queue_t to enqueue item to
  * @data: The data to enqueue
- * Return: 0 if success, -1 if queue is NULL
+ * Return: 0 if success, -1 if queue is NULL or allocation failed
  */
 int queue_enqueue(queue_t queue, void *data);
 
