@@ -36,6 +36,8 @@ static uthread_tcb *uthread_tcb_create(bool new_context, uthread_scheduler *sche
 static void uthread_tcb_destroy(uthread_scheduler *scheduler, uthread_tcb *thread);
 
 int uthread_run(bool preempt, void (*func)(void *), void *arg) {
+    if (!func) return -1;
+
     // initialize a scheduler
     scheduler = (uthread_scheduler *)calloc(1, sizeof(scheduler));
     if (!scheduler) return -1;
@@ -59,18 +61,35 @@ int uthread_run(bool preempt, void (*func)(void *), void *arg) {
 
     // idle loop until no more thread
     while (scheduler->thread_cnt > 0) {
-        // pop queue to get curr thread
-        scheduler->curr_thread = qu
-        // push curr thread back to queue
+        // pop queue to get next thread
+        queue_dequeue(scheduler, &(scheduler->curr_thread));
+        
+        // switch to next thread
+        scheduler->idle_thread->state = UTHREAD_BLOCKED;
+        scheduler->curr_thread->state = UTHREAD_RUNNING;
+        uthread_ctx_switch(scheduler->idle_thread, scheduler->curr_thread);
 
-        // run curr thread
-
+        // switched back from next thread
+        if (scheduler->curr_thread->state == UTHREAD_ZOMBIE) {
+            // destroy thread
+            uthread_tcb_destroy(scheduler, scheduler->curr_thread);
+        }
+        else if (scheduler->curr_thread->state == UTHREAD_BLOCKED) {
+            // push next thread back to queue
+            if (queue_enqueue(scheduler->qu, scheduler->curr_thread) == -1) {
+                uthread_tcb_destroy(scheduler, scheduler->curr_thread);
+            }
+        }
+        scheduler->curr_thread = scheduler->idle_thread;
     }
+
+
     return 0;
 }
 
 uthread_t uthread_create(void (*func)(void *), void *arg) {
     // create a new thread and add it to the scheduler
+    if (!func) return -1;
     uthread_tcb *thread = uthread_tcb_create(true, scheduler, func, arg);
     if (!thread) return -1;
     
@@ -85,9 +104,17 @@ uthread_t uthread_create(void (*func)(void *), void *arg) {
 
 void uthread_yield(void) {
     // switch back to the idle thread
+    scheduler->curr_thread->state = UTHREAD_BLOCKED;
+    
+    uthread_ctx_switch(scheduler->curr_thread, scheduler->idle_thread);
 }
 
-void uthread_exit(void);
+void uthread_exit(void) {
+    // mark current thread to be deleted
+    scheduler->curr_thread->state = UTHREAD_ZOMBIE;
+
+    uthread_ctx_switch(scheduler->curr_thread, scheduler->idle_thread);
+}
 
 uthread_t uthread_self(void) {
     if (!scheduler || !scheduler->curr_thread) return -1;
@@ -98,8 +125,9 @@ uthread_t uthread_self(void) {
 
 static void uthread_func_call(void) {
     if (scheduler->curr_thread) {
-        scheduler->curr_thread->
+        scheduler->curr_thread->usr_func(scheduler->curr_thread->usr_arg);
     }
+    uthread_exit();
 }
 
 static void uthread_scheduler_destroy(uthread_scheduler *scheduler) {
@@ -120,7 +148,7 @@ static void uthread_tcb_destroy(uthread_scheduler *scheduler, uthread_tcb *threa
 }
 
 // return: pointer to memory if success, NULL otherwise
-static uthread_tcb *uthread_tcb_create(bool new_context, uthread_scheduler *scheduler, void (*func)(void *), void *arg) {
+static uthread_tcb *uthread_tcb_create(bool new_context, uthread_scheduler *scheduler, void (*usr_func)(void *), void *usr_arg) {
     // uthread_t id;
     uthread_tcb *thread = (uthread_tcb *)calloc(1, sizeof(uthread_tcb));
     if (!thread) return NULL;
@@ -128,8 +156,11 @@ static uthread_tcb *uthread_tcb_create(bool new_context, uthread_scheduler *sche
     // finish struct
     thread->id = scheduler->thread_cnt;
     thread->state = UTHREAD_READY;
+    thread->usr_func = usr_func;
+    thread->usr_arg = usr_arg;
     scheduler->thread_cnt++;
     scheduler->idle_thread = thread;
+    
     
     if (new_context) {
         ucontext_t *context = (ucontext_t *)calloc(1, sizeof(ucontext_t));
