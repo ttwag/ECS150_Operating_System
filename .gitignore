@@ -3,3 +3,6 @@
 
 /project*/part*/build
 /project*/part*/instruction
+
+*.o
+*.a
