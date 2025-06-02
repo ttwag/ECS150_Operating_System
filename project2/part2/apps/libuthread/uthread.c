@@ -43,6 +43,12 @@ int uthread_run(bool preempt, void (*func)(void *), void *arg) {
     scheduler = (uthread_scheduler *)calloc(1, sizeof(scheduler));
     if (!scheduler) return -1;
     
+    scheduler->qu = queue_create();
+    if (!scheduler->qu) {
+        uthread_scheduler_destroy(scheduler);
+        return -1;
+    }
+
     // make current thread as the idle thread
     scheduler->idle_thread = uthread_tcb_create(false, scheduler, func, arg);
     if (!scheduler->idle_thread) {
