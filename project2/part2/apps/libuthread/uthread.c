@@ -67,16 +67,9 @@ int uthread_run(bool preempt, void (*func)(void *), void *arg) {
     }
 
     // idle loop until no more thread
-    while (scheduler->thread_cnt > 1) {
+    while (queue_length(scheduler->qu) > 0) {
         // pop queue to get next thread
-        if (queue_length(scheduler->qu)) {
-            queue_dequeue(scheduler->qu, (void **)&(scheduler->curr_thread));
-        }
-        else {
-            // thread count is wrong, return with error
-            uthread_scheduler_destroy(scheduler);        
-            return -1;
-        }
+        queue_dequeue(scheduler->qu, (void **)&(scheduler->curr_thread));
         
         // switch to next thread
         scheduler->idle_thread->state = UTHREAD_BLOCKED;
@@ -199,7 +192,7 @@ static uthread_tcb *uthread_tcb_create(bool new_context, uthread_scheduler *sche
         if (uthread_ctx_alloc_stack(&stack_ptr) == -1) {
             free(context);
             uthread_tcb_destroy(scheduler, thread);
-            return -1;
+            return NULL;
         }
         uthread_ctx_init(context, stack_ptr, uthread_func_wrap, NULL);
         thread->stack_ptr = stack_ptr;
