@@ -67,7 +67,7 @@ int uthread_run(bool preempt, void (*func)(void *), void *arg) {
     }
 
     // idle loop until no more thread
-    while (scheduler->thread_cnt > 0) {
+    while (scheduler->thread_cnt > 1) {
         // pop queue to get next thread
         queue_dequeue(scheduler->qu, (void **)&(scheduler->curr_thread));
         
@@ -89,6 +89,9 @@ int uthread_run(bool preempt, void (*func)(void *), void *arg) {
         }
         scheduler->curr_thread = scheduler->idle_thread;
     }
+
+    // free resources
+    uthread_scheduler_destroy(scheduler);
     return 0;
 }
 
@@ -142,8 +145,10 @@ static void uthread_func_wrap(void *arg) {
 static void uthread_scheduler_destroy(uthread_scheduler *scheduler) {
     if (scheduler) {
         queue_destroy(scheduler->qu);
+        if (scheduler->curr_thread == scheduler->idle_thread) {
+            uthread_tcb_destroy(scheduler, scheduler->curr_thread);
+        }
         uthread_tcb_destroy(scheduler, scheduler->idle_thread);
-        uthread_tcb_destroy(scheduler, scheduler->curr_thread);
     }
     free(scheduler);
 }
