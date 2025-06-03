@@ -69,7 +69,14 @@ int uthread_run(bool preempt, void (*func)(void *), void *arg) {
     // idle loop until no more thread
     while (scheduler->thread_cnt > 1) {
         // pop queue to get next thread
-        queue_dequeue(scheduler->qu, (void **)&(scheduler->curr_thread));
+        if (queue_length(scheduler->qu)) {
+            queue_dequeue(scheduler->qu, (void **)&(scheduler->curr_thread));
+        }
+        else {
+            // thread count is wrong, return with error
+            uthread_scheduler_destroy(scheduler);        
+            return -1;
+        }
         
         // switch to next thread
         scheduler->idle_thread->state = UTHREAD_BLOCKED;
@@ -145,7 +152,7 @@ static void uthread_func_wrap(void *arg) {
 static void uthread_scheduler_destroy(uthread_scheduler *scheduler) {
     if (scheduler) {
         queue_destroy(scheduler->qu);
-        if (scheduler->curr_thread == scheduler->idle_thread) {
+        if (scheduler->curr_thread != scheduler->idle_thread) {
             uthread_tcb_destroy(scheduler, scheduler->curr_thread);
         }
         uthread_tcb_destroy(scheduler, scheduler->idle_thread);
@@ -179,20 +186,25 @@ static uthread_tcb *uthread_tcb_create(bool new_context, uthread_scheduler *sche
     thread->usr_arg = usr_arg;
     scheduler->thread_cnt++;
     
-    if (new_context) {
-        ucontext_t *context = (ucontext_t *)calloc(1, sizeof(ucontext_t));
-        if (!context) {
-            // free the partially created thread
-            uthread_tcb_destroy(scheduler, thread);
-            return NULL;
-        }
+    ucontext_t *context = (ucontext_t *)calloc(1, sizeof(ucontext_t));
+    if (!context) {
+        // free the partially created thread
+        uthread_tcb_destroy(scheduler, thread);
+        return NULL;
+    }
 
+    // if new context with stack is needed
+    if (new_context) {
         void *stack_ptr = NULL;
-        uthread_ctx_alloc_stack(&stack_ptr);
+        if (uthread_ctx_alloc_stack(&stack_ptr) == -1) {
+            free(context);
+            uthread_tcb_destroy(scheduler, thread);
+            return -1;
+        }
         uthread_ctx_init(context, stack_ptr, uthread_func_wrap, NULL);
-        thread->context = context;
         thread->stack_ptr = stack_ptr;
     }
+    thread->context = context;
     return thread;
 }
 
