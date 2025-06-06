@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
-#include <queue.h>
+#include "queue.h"
 
 /* queue test */
 void test_create() {

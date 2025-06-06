@@ -1,7 +1,7 @@
 /*queue.c*/
 
 #include <stdlib.h>
-#include <queue.h>
+#include "queue.h"
 
 /*
  * node_t - Node type

@@ -5,7 +5,7 @@ SRC_DIR = .
 BUILD_DIR = .
 SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
-TARGET = $(BUILD_DIR)/libuthread.a
+TARGET = $(BUILD_DIR)/libfs.a
 
 ifeq ($(DEBUG),1)
     CFLAGS = $(DEBUG_CFLAGS)

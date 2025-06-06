@@ -200,4 +200,3 @@ static uthread_tcb *uthread_tcb_create(bool new_context, uthread_scheduler *sche
     thread->context = context;
     return thread;
 }
-
