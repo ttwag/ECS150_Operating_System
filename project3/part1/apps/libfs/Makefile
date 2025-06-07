@@ -21,6 +21,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 
 clean:
 	rm -f $(BUILD_DIR)/*.o $(TARGET)
+	rm -f *.fs
 
 debug : CFLAGS = $(DEBUG_CFLAGS)
 debug: clean all run

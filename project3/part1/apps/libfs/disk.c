@@ -1,3 +1,4 @@
+#include <libc.h> // perror()
 #include <sys/stat.h> // fstat()
 #include <fcntl.h> // open()
 #include <unistd.h> // lseek(), read(), write()
@@ -31,7 +32,7 @@ int block_disk_close(void) {
 
 int block_read(size_t block_num, void *buf) {
     if (fd == -1) return -1;
-    if (block_num >= block_disk_count()) return -1;
+    if (block_num >= (size_t)block_disk_count()) return -1;
     if (!buf) return -1;
     
     // seek to the byte offset, then write
@@ -50,7 +51,7 @@ int block_read(size_t block_num, void *buf) {
 
 int block_write(size_t block_num, const void *buf) {
     if (fd == -1) return -1;
-    if (block_num >= block_disk_count()) return -1;
+    if (block_num >= (size_t)block_disk_count()) return -1;
     if (!buf) return -1;
 
     // seek to the byte offset, then write
